@@ -1,0 +1,30 @@
+This file includes core CHIPSEC developers
+==========================================
+
+All lists are in alphabetical order.
+
+Original CHIPSEC author is Yuriy Bulygin (@c7zero).
+
+Current core developers:
+* Sara Balltori (@Sae86)
+* Aaron Frinzell (@frinzell)
+* Ignacio Hernandez (@iherna2)
+* Brent Holtsclaw (@BrentHoltsclaw)
+* Nathaniel Mitchell (@npmitche)
+
+Previous core developers:
+* Nick Armour (@NicholasArmour)
+* Oleksandr Bazhaniuk (@abazhaniuk)
+* Erik Bjorge (@ErikBjorge)
+* Yuriy Bulygin (@c7zero)
+* Jeff Forristal
+* Andrew Furtak (@andrew-furtak)
+* Oscar A Gomez (@oscaragomez)
+* Mikhail Gorobets (@mikhail-gorobets)
+* Kevin Jacobs (@kevinjacobs)
+* John Loucaides (@johnloucaides)
+* Thiébaud Weksteen (@tweksteen)
+*  Mario H. Felix Jr.PhD
+
+CHIPSEC release alerts on Twitter https://twitter.com/ChipsecR
+The authors can also be reached on Twitter https://twitter.com/CHIPSEC
