@@ -1,0 +1,140 @@
+I bought M1 MacBook Air. It is the fastest computer I have, and I have been a GNOME/GNU/Linux user for long time. It is obvious conclusion that I need practical Linux desktop environment on Apple Silicon/M1.
+
+Fortunately, Linux already works on Apple Silicon/M1. But how practical is it?
+
+Two native ports exist, but they don't have enough device support yet. It certainly takes some time.
+Corellium https://corellium.com/blog/linux-m1
+Asahi Linux https://asahilinux.org
+QEMU can run with Hypervisor.framework with: https://patchew.org/QEMU/20210120224444.71840-1-agraf@csgraf.de/
+It allows to run code on CPU natively. But what about GPU? Unfortunately, QEMU is also not optimized so much for macOS.
+As I needed Linux desktop right now, I decided to hack QEMU. The most difficult challenge is obviously accelerated graphics, but there is Virgil 3D; a birdge to expose host OpenGL to the guest. https://virgil3d.github.io
+
+It unfortunately didn't work on macOS host. So I just made it work. That's it. Here is a video demonstrating OpenGL on Linux on Apple Silicon/M1:
+
+https://www.youtube.com/watch?v=k0bVlVQU2JQ&list=PLesZxBYUPr3wdU3sONUv4Q7UDOg1Dn_Ue&index=4
+
+Modifications
+QEMU
+hvf
+The hvf patches are merged into current master.
+The installation script is fixed.
+ui/cocoa
+Added OpenGL support.
+Enforced pixel by pixel display.
+Tells physical/pixel window size to the guest. Now Ubuntu can properly deal with Retina and respond to window size change.
+Added cursor composition.
+A bug which keeps e.g. command key pressed is fixed.
+coreaudio
+Added device change support. (i.e. you can plug/unplug an earphone while QEMU is running.)
+
+hw/block
+Add punchhole operation. (The disk image consumes physical storage only when it actually has data.)
+Optimized transfer unit.
+Virgil 3D renderer
+Improved OpenGL ES support.
+
+Do It Yourself
+Setup
+1. Open a terminal.
+
+2. Install GLib, Meson, Pixman and pkg-config with Homebrew.
+
+brew install glib meson pixman pkg-config
+3. Make a empty directory and change the working directory to it.
+
+4.
+
+curl https://gist.githubusercontent.com/akihikodaki/87df4149e7ca87f18dc56807ec5a1bc5/raw/73ff284c2a0f04feb83ac1f515e5da8b4cf4a311/run.sh | bash -
+5.
+
+bin/qemu-img create var/virtio.raw 64G
+It doesn't consume the physical space until it has data, so you can make the image very large. However, you will see odd behavior if you try to write data more than the physical disk allows.
+
+6.
+
+curl -O https://cdimage.ubuntu.com/focal/daily-live/current/focal-desktop-arm64.iso
+7.
+
+./run -cdrom focal-desktop-arm64.iso
+Proceed the installation process, and now you can run Ubuntu by executing ./run.
+
+Updating
+Just download the latest run.sh and execute it in your workspace directory.
+
+Choosing OpenGL profile
+Edit run.
+
+gl=off will disable Virgil 3D GPU. Most stable but laggy.
+gl=core will enable OpenGL.framework. Unstable.
+gl=es will enable ANGLE. Stable and fast.
+Running piglit
+Test OpenGL with piglit.
+
+On Ubuntu:
+
+piglit run all -x spec@ext_timer_query@time-elapsed -x 'spec@arb_timer_query@query gl_timestamp' --timeout 9 results/all
+The disabled tests will cause qemu crash due to the following bug: https://bugs.chromium.org/p/angleproject/issues/detail?id=5701
+
+vhost-user-gpu would prevent QEMU process from crashing by isolating graphics acceleration process, but it needs modifications to run outside Linux because:
+
+historically, vhost-user is a reimplementation of Linux kernel's vhost interface, and it relies on kernel headers for interface definitions and
+vhost-user uses eventfd which is only available on Linux.
+It shouldn't be difficult, but I'm satisfied even without process isolation so I don't.
+
+Upstreaming
+Upstreaming is in progress. Hopefully the features I implemented will work just by running brew install qemu in the future.
+
+Epoxy: https://github.com/anholt/libepoxy/pull/239
+QEMU: https://patchew.org/search?q=project%3AQEMU+from%3Aakihiko.odaki%40gmail.com
+Virgil 3D renderer: https://gitlab.freedesktop.org/virgl/virglrenderer/-/merge_requests?scope=all&utf8=?&state=all&author_username=akihiko.odaki
+Future Perspective
+As I described here, such a virtualization software is practical and efficient approach to run Linux desktop. The performance overhead is also acceptable for daily use, and it even provides better integration of Linux and macOS. For example, you can switch macOS and Linux with three-finger gesture on trackpad. You can use VirtFS.
+
+However, there are complexities that such a virtualization adds. It basically means sharing one hardware with two systems, so you have to allocate them properly or it ends up with bad user experience. The allocation problem happens everywhere (HID like keyboard, computing resource like CPU, power management, etc.). This approach is efficient but not the best.
+
+In long term, native Linux port is the best option. However, it is not practical if it takes too long before it becomes available. Therefore, we should consider hybrid approaches. marcan42, the founder of Asahi Linux, has an idea to run macOS on KVM on Linux to support complex devices, for example: https://twitter.com/marcan42/status/1361999648819269636
+
+Another approach is to get macOS device support softwares work on Linux. In the past, there was NDISWrapper, a project to bring some Windows drivers to Linux. There was also Cider, a research project to "duct-tape" XNU's IOKit to Linux to bring macOS drivers to Android. https://www.cs.columbia.edu/~nieh/pubs/asplos2014_cider.pdf
+
+By taking those approaches, it is possible to reduce dependencies on macOS gradually, not at once.
+
+run.sh
+set -eux
+mkdir -p depot_tools build/qemu source/angle source/libepoxy source/virglrenderer source/qemu
+git -C depot_tools init
+git -C depot_tools fetch https://chromium.googlesource.com/chromium/tools/depot_tools.git
+git -C depot_tools checkout FETCH_HEAD
+git -C source/angle init
+git -C source/angle fetch https://chromium.googlesource.com/angle/angle
+git -C source/angle checkout FETCH_HEAD
+git -C source/libepoxy init
+git -C source/libepoxy fetch https://github.com/akihikodaki/libepoxy.git macos
+git -C source/libepoxy checkout FETCH_HEAD
+git -C source/virglrenderer init
+git -C source/virglrenderer fetch https://github.com/akihikodaki/virglrenderer.git macos
+git -C source/virglrenderer checkout FETCH_HEAD
+git -C source/qemu init
+git -C source/qemu fetch https://github.com/akihikodaki/qemu.git macos
+git -C source/qemu checkout FETCH_HEAD
+export PATH="$PWD/depot_tools:$PATH"
+cd source/angle
+python2 scripts/bootstrap.py
+gclient sync
+gn gen '--args=target_cpu="arm64"' ../../build/angle
+cd ../..
+ninja -C build/angle
+meson "-Dc_args=-I$PWD/source/angle/include" "-Dc_link_args=-L$PWD/build/angle" "--prefix=$PWD" -Degl=yes -Dx11=false build/libepoxy source/libepoxy
+meson install -C build/libepoxy
+meson "--pkg-config-path=$PWD/lib/pkgconfig" "--prefix=$PWD" build/virglrenderer source/virglrenderer
+meson install -C build/virglrenderer
+cd build/qemu
+PKG_CONFIG_PATH="$PWD/../../lib/pkgconfig" ../../source/qemu/configure "--extra-cflags=-I$PWD/../../source/angle/include -I$PWD/../../include" "--extra-ldflags=-L$PWD/../angle" "--prefix=$PWD/../.."
+meson install
+cp -i pc-bios/edk2-aarch64-code.fd pc-bios/edk2-arm-vars.fd ../../var
+cd ../..
+cat > run <<'EOF'
+#!/bin/bash
+d="$(dirname "{BASH_SOURCE[0]}")"
+DYLD_FALLBACK_LIBRARY_PATH="$d/build/angle:$d/lib" exec "$d/bin/qemu-system-aarch64" -machine virt,accel=hvf,highmem=off -cpu cortex-a72 -smp 8 -m 4096 -device intel-hda -device hda-output -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-net-device,netdev=net -device virtio-mouse-pci -display cocoa,gl=es -drive "if=pflash,format=raw,file=$d/var/edk2-aarch64-code.fd,readonly=on" -drive "if=pflash,format=raw,file=$d/var/edk2-arm-vars.fd,discard=on" -drive "if=virtio,format=raw,file=$d/var/virtio.raw,discard=on" -netdev user,id=net -full-screen "$@"
+EOF
+chmod a+x run
