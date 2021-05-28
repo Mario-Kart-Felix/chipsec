@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #CHIPSEC: Platform Security Assessment Framework
-#Copyright (c) 2010-2020, Intel Corporation
+#Copyright (c) 2010-2021, Intel Corporation
 #
 #This program is free software; you can redistribute it and/or
 #modify it under the terms of the GNU General Public License
@@ -34,11 +34,17 @@ import atexit
 from chipsec.testcase import TestCase, ChipsecResults
 import traceback
 try:
-    import WConio
+    # Prefer WConio2 over the original WConio as it is more up-to-date and better maintained.
+    # See https://pypi.org/project/WConio2/ for more details.
+    import WConio2 as WConio
     has_WConio = True
 except ImportError:
-    has_WConio = False
-    #raiseImportError('WConio package not installed. No colored output')
+    try:
+        import WConio
+        has_WConio = True
+    except ImportError:
+        has_WConio = False
+        #raiseImportError('WConio package not installed. No colored output')
 
 LOG_PATH                = os.path.join( os.getcwd(), "logs" )
 #LOG_STATUS_FILE_NAME    = ""
@@ -210,17 +216,16 @@ class Logger:
     def set_always_flush( self, val ):
         self.ALWAYS_FLUSH = val
 
-    def log( self, text, level=pyLogging.INFO):
+    def log(self, text, level=pyLogging.INFO):
         """Sends plain text to logging."""
         if self.Results.get_current() is not None:
             self.Results.get_current().add_output(text)
-        if self.LOG_TO_FILE: self._save_to_log_file( text )
-        else:
-            if self.rootLogger:
-                self.rootLogger.log(level, text)
-                if self.ALWAYS_FLUSH: sys.stdout.flush()
-            else:
-                print(text)
+        try:
+            self.rootLogger.log(level, text)
+            if self.ALWAYS_FLUSH:
+                self.flush()
+        except BaseException:
+            print(text)
 
     def error( self, text ):
         """Logs an Error message"""

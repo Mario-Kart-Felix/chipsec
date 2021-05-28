@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #CHIPSEC: Platform Security Assessment Framework
-#Copyright (c) 2010-2020, Intel Corporation
+#Copyright (c) 2010-2021, Intel Corporation
 #
 #This program is free software; you can redistribute it and/or
 #modify it under the terms of the GNU General Public License
@@ -176,15 +176,21 @@ class MMIO(hal_base.HALBase):
         if bar is None or bar == {}: return -1, -1
 
         if 'register' in bar:
+            preserve = True
             bar_reg = bar['register']
-            reg_def = self.cs.get_register_def(bar_reg)
             if 'base_field' in bar:
                 base_field = bar['base_field']
-                base = self.cs.read_register_field(bar_reg, base_field, preserve_field_position=True)
-                reg_mask = self.cs.get_register_field_mask(bar_reg, base_field, preserve_field_position=True)
+                try:
+                    base = self.cs.read_register_field(bar_reg, base_field, preserve)
+                except Exception:
+                    base = 0
+                try:
+                    reg_mask = self.cs.get_register_field_mask(bar_reg, base_field, preserve)
+                except:
+                    reg_mask = 0xFFFF
             else:
                 base = self.cs.read_register(bar_reg)
-                reg_mask = self.cs.get_register_field_mask(bar_reg, preserve_field_position=True)
+                reg_mask = self.cs.get_register_field_mask(bar_reg, preserve)
         else:
             # this method is not preferred (less flexible)
             b = int(bar['bus'], 16)
@@ -200,7 +206,7 @@ class MMIO(hal_base.HALBase):
             else:
                 base = self.cs.pci.read_dword( b, d, f, r )
 
-        if 'fixed_address' in bar and base == reg_mask:
+        if 'fixed_address' in bar and (base == reg_mask or base == 0):
             base = int(bar['fixed_address'], 16)
             if self.logger.HAL: self.logger.log('[mmio] Using fixed address for {}: 0x{:016X}'.format(bar_name, base))
         if 'mask' in bar: base &= int(bar['mask'], 16)
@@ -208,6 +214,8 @@ class MMIO(hal_base.HALBase):
         size = int(bar['size'], 16) if ('size' in bar) else DEFAULT_MMIO_BAR_SIZE
 
         if self.logger.HAL: self.logger.log( '[mmio] {}: 0x{:016X} (size = 0x{:X})'.format(bar_name, base, size) )
+        if base == 0:
+            raise Exception
         return base, size
 
     #
@@ -352,8 +360,8 @@ class MMIO(hal_base.HALBase):
     def read_mmcfg_reg(self, bus, dev, fun, off, size):
         pciexbar, pciexbar_sz = self.get_MMCFG_base_address()
         pciexbar_off = (bus * 32 * 8 + dev * 8 + fun) * 0x1000 + off
-        value = self.read_MMIO_reg(pciexbar, pciexbar_off, 4, pciexbar_sz)
-        if self.logger.HAL: self.logger.log( "[mmcfg] reading {:02d}:{:02d}.{:d} + 0x{:02X} (MMCFG + 0x{:08X}): 0x{:08X}".format(bus, dev, fun, off, pciexbar_off, value) )
+        value = self.read_MMIO_reg(pciexbar, pciexbar_off, size, pciexbar_sz)
+        if self.logger.HAL: self.logger.log( "[mmcfg] reading {:02d}:{:02d}.{:d} + 0x{:02X} (MMCFG + 0x{:08X}): 0x{:08X}".format(bus, dev, fun, off, pciexbar_off, value))
         if 1 == size:
             return (value & 0xFF)
         elif 2 == size:
@@ -363,6 +371,12 @@ class MMIO(hal_base.HALBase):
     def write_mmcfg_reg(self, bus, dev, fun, off, size, value):
         pciexbar, pciexbar_sz = self.get_MMCFG_base_address()
         pciexbar_off = (bus * 32 * 8 + dev * 8 + fun) * 0x1000 + off
-        self.write_MMIO_reg(pciexbar, pciexbar_off, (value&0xFFFFFFFF), 4, pciexbar_sz)
-        if self.logger.HAL: self.logger.log( "[mmcfg] writing {:02d}:{:02d}.{:d} + 0x{:02X} (MMCFG + 0x{:08X}): 0x{:08X}".format(bus, dev, fun, off, pciexbar_off, value) )
+        if size == 1:
+            mask = 0xFF
+        elif size == 2:
+            mask = 0xFFFF
+        else:
+            mask = 0xFFFFFFFF
+        self.write_MMIO_reg(pciexbar, pciexbar_off, (value & mask), size, pciexbar_sz)
+        if self.logger.HAL: self.logger.log( "[mmcfg] writing {:02d}:{:02d}.{:d} + 0x{:02X} (MMCFG + 0x{:08X}): 0x{:08X}".format(bus, dev, fun, off, pciexbar_off, value))
         return True

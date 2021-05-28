@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #CHIPSEC: Platform Security Assessment Framework
-#Copyright (c) 2010-2020, Intel Corporation
+#Copyright (c) 2010-2021, Intel Corporation
 #
 #This program is free software; you can redistribute it and/or
 #modify it under the terms of the GNU General Public License
@@ -76,6 +76,12 @@ LZMA  = os.path.join(chipsec.file.get_main_dir(), chipsec.file.TOOLS_DIR, "compr
 TIANO = os.path.join(chipsec.file.get_main_dir(), chipsec.file.TOOLS_DIR, "compression", "bin", "TianoCompress")
 EFI   = os.path.join(chipsec.file.get_main_dir(), chipsec.file.TOOLS_DIR, "compression", "bin", "TianoCompress")
 BROTLI = os.path.join(chipsec.file.get_main_dir(), chipsec.file.TOOLS_DIR, "compression", "bin", "Brotli")
+
+_tools = {
+  chipsec.defines.COMPRESSION_TYPE_TIANO: 'TianoCompress',
+  chipsec.defines.COMPRESSION_TYPE_LZMA: 'LzmaCompress',
+  chipsec.defines.COMPRESSION_TYPE_BROTLI: 'Brotli'
+}
 
 class MemoryMapping(mmap.mmap):
     """Memory mapping based on Python's mmap.
@@ -168,7 +174,7 @@ class LinuxHelper(Helper):
         try:
             subprocess.check_output( [ "insmod", driver_path, a1, a2 ] )
         except Exception as err:
-            raise Exception("Could not start Linux Helper, are you running as Admin/root?\n\t{}.format(err)")
+            raise Exception("Could not start Linux Helper, are you running as Admin/root?\n\t{}".format(err))
         uid = gid = 0
         os.chown(self.DEVICE_NAME, uid, gid)
         os.chmod(self.DEVICE_NAME, 600)
@@ -607,9 +613,14 @@ class LinuxHelper(Helper):
                 self.native_map_io_space(bar_base, bar_size, 0)
                 region = self.memory_mapping(bar_base, bar_size)
                 if not region: logger().error("Unable to map region {:08x}".format(bar_base))
-            region.seek(bar_base + offset - region.start)
-            reg = region.read(size)
-            return defines.unpack1(reg, size)
+
+            # Create memoryview into mmap'ed region in dword granularity
+            region_mv = memoryview(region)
+            region_dw = region_mv.cast('I')
+            # read one DWORD
+            offset_in_region = (bar_base + offset - region.start) // 4
+            reg = region_dw[offset_in_region]
+            return reg
 
     def write_mmio_reg(self, phys_address, size, value):
         in_buf = struct.pack( "3" +self._pack, phys_address, size, value )
@@ -624,11 +635,16 @@ class LinuxHelper(Helper):
                 self.native_map_io_space(bar_base, bar_size, 0)
                 region = self.memory_mapping(bar_base, bar_size)
                 if not region: logger().error("Unable to map region {:08x}".format(bar_base))
-            region.seek(bar_base + offset - region.start)
-            written = region.write(reg)
-            if written != size:
-                logger().error("Unable to write all data to MMIO (wrote {:d} of {:d})".format(written, size))
 
+            # Create memoryview into mmap'ed region in dword granularity
+            region_mv = memoryview(region)
+            region_dw = region_mv.cast('I')
+            # Create memoryview containing data in dword
+            data_mv = memoryview(reg)
+            data_dw = data_mv.cast('I')
+            # write one DWORD
+            offset_in_region = (bar_base + offset - region.start) // 4
+            region_dw[offset_in_region] = data_dw[0]
 
     def get_ACPI_SDT( self ):
         raise UnimplementedAPIError( "get_ACPI_SDT" )
@@ -763,12 +779,13 @@ class LinuxHelper(Helper):
             return (off, buf, hdr, None, guid, attr)
 
         if (status > 0):
-            if logger().DEBUG: logger().error( "Reading variable (GET_EFIVAR) did not succeed: {}".format(status_dict[status]))
+            if logger().DEBUG:
+                logger().error( "Reading variable (GET_EFIVAR) did not succeed: {} ({:d})".format(status_dict.get(status, 'UNKNOWN'), status))
             data = ""
             guid = 0
             attr = 0
         else:
-            data = buffer[base:base +new_size].tostring()
+            data = buffer[base:base +new_size].tobytes()
             attr = struct.unpack( "I", buffer[8:12])[0]
         return (off, buf, hdr, data, guid, attr)
 
@@ -831,7 +848,8 @@ class LinuxHelper(Helper):
         size, status = struct.unpack( "2I", buffer[:8])
 
         if (status != 0):
-            if logger().DEBUG: logger().error( "Setting EFI (SET_EFIVAR) variable did not succeed: {}".format(status_dict[status]) )
+            if logger().DEBUG:
+                logger().error("Setting EFI (SET_EFIVAR) variable did not succeed: '{}' ({:d})".format(status_dict.get(status, 'UNKNOWN'), status))
         else:
             os.system('umount /sys/firmware/efi/efivars; mount -t efivarfs efivarfs /sys/firmware/efi/efivars')
         return status

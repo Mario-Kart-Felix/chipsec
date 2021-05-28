@@ -34,7 +34,7 @@ import struct
 import uuid
 
 from chipsec.hal import hal_base
-from chipsec.logger import logger
+from chipsec.logger import logger, print_buffer_bytes
 from chipsec.hal.acpi import ACPI
 from chipsec.hal.acpi_tables import UEFI_TABLE
 from chipsec.defines import bytestostring
@@ -159,7 +159,7 @@ MdeModulePkg/Core/PiSmmCore/PiSmmCorePrivateData.h
   EFI_STATUS                      ReturnStatus;
 } SMM_CORE_PRIVATE_DATA;
     '''
-    def send_smmc_SMI(self, smmc, guid, payload, payload_loc):
+    def send_smmc_SMI(self, smmc, guid, payload, payload_loc, CommandPort=0x0, DataPort=0x0):
         guid_b = uuid.UUID(guid).bytes_le
         payload_sz = len(payload)
 
@@ -171,9 +171,20 @@ MdeModulePkg/Core/PiSmmCore/PiSmmCorePrivateData.h
         ReturnStatus_offset = BufferSize_offset + 8
 
         self.cs.mem.write_physical_mem(smmc + CommBuffer_offset, 8, struct.pack("Q", payload_loc))
-        self.cs.mem.write_physical_mem(smmc + BufferSize_offset, 8, struct.pack("Q", payload_sz))
+        self.cs.mem.write_physical_mem(smmc + BufferSize_offset, 8, struct.pack("Q", len(data_hdr)))
         self.cs.mem.write_physical_mem(payload_loc, len(data_hdr), data_hdr)
-        self.send_SMI_APMC(0x0, 0x0)
+        
+        if self.logger.VERBOSE:
+            self.logger.log("[*] Communication buffer on input")
+            print_buffer_bytes(self.cs.mem.read_physical_mem(payload_loc, len(data_hdr)))
+            self.logger.log("")
+
+        self.send_SMI_APMC(CommandPort, DataPort)
+        
+        if self.logger.VERBOSE:
+            self.logger.log("[*] Communication buffer on output")
+            print_buffer_bytes(self.cs.mem.read_physical_mem(payload_loc, len(data_hdr)))
+            self.logger.log("")
 
         ReturnStatus = struct.unpack("Q", self.cs.mem.read_physical_mem(smmc + ReturnStatus_offset, 8))[0]
         return ReturnStatus
